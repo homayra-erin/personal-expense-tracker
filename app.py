@@ -2,7 +2,10 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
 
-# Initialize Supabase Client
+# Streamlit Page Config
+st.set_page_config(page_title="Personal Expense Tracker", page_icon="💰", layout="centered")
+
+# Supabase Initialization
 @st.cache_resource
 def init_supabase() -> Client:
     url = st.secrets["SUPABASE_URL"]
@@ -11,87 +14,131 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
-st.title("🔒 Personal Expense Tracker")
-
-# Session State for Managing Login
+# Session State for User Authentication
 if "user" not in st.session_state:
     st.session_state.user = None
 
-# Authentication Sidebar (Login / Sign Up)
-if not st.session_state.user:
-    st.sidebar.header("🔑 Authentication")
-    auth_mode = st.sidebar.radio("Choose Action", ["Login", "Sign Up"])
-    email = st.sidebar.text_input("Email")
-    password = st.sidebar.text_input("Password", type="password")
-
-    if auth_mode == "Sign Up":
-        if st.sidebar.button("Create Account"):
-            try:
-                res = supabase.auth.sign_up({"email": email, "password": password})
-                st.sidebar.success("Account created successfully! You can now log in.")
-            except Exception as e:
-                st.sidebar.error(f"Sign up failed: {e}")
-
-    elif auth_mode == "Login":
-        if st.sidebar.button("Log In"):
+# --- AUTHENTICATION SECTION ---
+if st.session_state.user is None:
+    st.title("🔑 Expense Tracker - Login")
+    
+    auth_action = st.radio("Choose Action", ["Login", "Sign Up"], horizontal=True)
+    email = st.text_input("Email")
+    password = st.text_input("Password", type="password")
+    
+    if auth_action == "Login":
+        if st.button("Log In", type="primary"):
             try:
                 res = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 st.session_state.user = res.user
-                st.sidebar.success("Logged in successfully!")
+                st.success("Successfully logged in!")
                 st.rerun()
             except Exception as e:
-                st.sidebar.error(f"Login failed: Check email and password.")
+                st.error(f"Login failed: {e}")
 
+    elif auth_action == "Sign Up":
+        if st.button("Create Account", type="primary"):
+            try:
+                res = supabase.auth.sign_up({"email": email, "password": password})
+                st.session_state.user = res.user
+                st.success("Account created successfully!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Sign up failed: {e}")
+
+# --- MAIN APP SECTION (LOGGED IN) ---
 else:
-    # User Profile Info & Logout
-    st.sidebar.write(f"Logged in as: **{st.session_state.user.email}**")
-    if st.sidebar.button("Log Out"):
-        supabase.auth.sign_out()
-        st.session_state.user = None
-        st.rerun()
+    user_id = st.session_state.user.id
+    user_email = st.session_state.user.email
 
-    st.sidebar.markdown("---")
-    st.sidebar.header("Add New Expense")
-    
-    date = st.sidebar.date_input("Date")
-    category = st.sidebar.selectbox("Category", ["Food", "Transport", "Bills", "Shopping", "Entertainment", "Other"])
-    amount = st.sidebar.number_input("Amount (Tk)", min_value=0.0, format="%.2f")
-    description = st.sidebar.text_input("Description")
+    # Top Header & Logout
+    col_title, col_logout = st.columns([3, 1])
+    with col_title:
+        st.title("💰 Expense Tracker")
+        st.caption(f"Logged in as: **{user_email}**")
+    with col_logout:
+        st.write("")
+        if st.button("Log Out"):
+            supabase.auth.sign_out()
+            st.session_state.user = None
+            st.rerun()
 
-    if st.sidebar.button("Save Expense"):
-        if amount > 0:
+    st.divider()
+
+    # --- ADD NEW EXPENSE ---
+    st.subheader("➕ Add New Expense")
+    with st.form("expense_form", clear_on_submit=True):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            exp_date = st.date_input("Date")
+        with col2:
+            category = st.selectbox("Category", ["Food", "Transport", "Shopping", "Bills", "Entertainment", "Other"])
+        with col3:
+            amount = st.number_input("Amount ($)", min_value=0.01, step=1.0)
+            
+        submitted = st.form_submit_button("Add Expense", use_container_width=True)
+        
+        if submitted:
             data = {
-                "user_id": st.session_state.user.id,
-                "date": str(date),
+                "user_id": user_id,
+                "date": str(exp_date),
                 "category": category,
-                "amount": amount,
-                "description": description
+                "amount": amount
             }
             try:
                 supabase.table("expenses").insert(data).execute()
-                st.sidebar.success("Expense saved successfully! ✅")
+                st.success("Expense added successfully!")
                 st.rerun()
             except Exception as e:
-                st.sidebar.error(f"Error saving expense: {e}")
-        else:
-            st.sidebar.error("Please enter an amount greater than 0.")
+                st.error(f"Failed to add expense: {e}")
 
-    # Main Dashboard
-    st.header("My Expenses History")
+    st.divider()
 
+    # --- FETCH & DISPLAY EXPENSES (ORDERED NEWEST FIRST) ---
+    st.subheader("📊 Expense History")
+    
     try:
-        response = supabase.table("expenses").select("*").eq("user_id", st.session_state.user.id).order("date", desc=True).execute()
+        # created_at অনুযায়ী desc=True করে সাজানো হয়েছে (নতুন রেকর্ড আগে আসবে)
+        response = supabase.table("expenses") \
+            .select("*") \
+            .order("created_at", desc=True) \
+            .execute()
+        
         expenses_data = response.data
 
         if expenses_data:
             df = pd.DataFrame(expenses_data)
-            df = df[["date", "category", "amount", "description"]]
             
-            st.dataframe(df, use_container_width=True)
-            
-            total_spent = df["amount"].sum()
-            st.metric("Total Spent", f"{total_spent:,.2f} Tk")
+            # Summary Metrics
+            total_expense = df["amount"].sum()
+            st.metric(label="Total Expenses", value=f"${total_expense:,.2f}")
+            st.write("")
+
+            # Record Headers
+            h1, h2, h3, h4 = st.columns([2, 2, 2, 1])
+            h1.markdown("**Date**")
+            h2.markdown("**Category**")
+            h3.markdown("**Amount**")
+            h4.markdown("**Action**")
+            st.divider()
+
+            # Record Rows with Delete Option
+            for item in expenses_data:
+                col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
+                col1.write(item["date"])
+                col2.write(item["category"])
+                col3.write(f"${item['amount']:,.2f}")
+                
+                # Delete Button
+                if col4.button("Delete", key=f"del_{item['id']}"):
+                    try:
+                        supabase.table("expenses").delete().eq("id", item["id"]).execute()
+                        st.toast("Expense deleted!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Could not delete item: {e}")
         else:
-            st.info("No expenses recorded yet.")
+            st.info("No expense records found. Add your first expense above!")
+
     except Exception as e:
-        st.error(f"Error fetching data: {e}")
+        st.error(f"Error loading expenses: {e}")
