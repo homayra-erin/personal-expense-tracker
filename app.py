@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
-from datetime import date
+from datetime import date, datetime
 import calendar
 from supabase import create_client, Client
 
@@ -18,9 +18,13 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
-# Session State for User Authentication
+# Session State Initialization
 if "user" not in st.session_state:
     st.session_state.user = None
+
+if "selected_daily_month" not in st.session_state:
+    # Auto-select current month in YYYY-MM format (e.g. 2026-09)
+    st.session_state.selected_daily_month = date.today().strftime('%Y-%m')
 
 # --- AUTHENTICATION SECTION ---
 if st.session_state.user is None:
@@ -69,7 +73,7 @@ else:
 
     st.divider()
 
-    # --- ADD EXPENSE TABS (SINGLE vs MONTHLY FIXED) ---
+    # --- ADD EXPENSE TABS ---
     st.subheader("➕ Add Expenses")
     add_tab1, add_tab2 = st.tabs(["📌 Add Single Expense", "🗓️ Add Monthly Fixed Expense"])
 
@@ -169,66 +173,103 @@ else:
             # --- VISUAL ANALYTICS & CHARTS ---
             st.subheader("📈 Analytics & Monthly Grid")
             tab_daily, tab_grid, tab_monthly, tab_category = st.tabs([
-                "📅 Daily Track (Updated)", 
+                "📅 Daily Calendar Track", 
                 "🧩 Monthly Tic-Tac Grid", 
                 "🗓️ 12-Month Analytics", 
                 "🏷️ Category Breakdown"
             ])
 
-            # 1. UPDATED DAILY TRACK TAB
+            # 1. DAILY CALENDAR TRACK (WITH MONTH FLIPPER)
             with tab_daily:
-                daily_df = df.groupby('date')['amount'].sum().reset_index()
-                daily_df['datetime'] = pd.to_datetime(daily_df['date'])
-                daily_df = daily_df.sort_values('datetime')
+                available_months = sorted(df['month'].unique())
+                current_m = st.session_state.selected_daily_month
 
-                if not daily_df.empty:
-                    avg_daily = daily_df['amount'].mean()
-                    max_daily = daily_df['amount'].max()
-                    max_date = daily_df.loc[daily_df['amount'].idxmax()]['date']
+                # Make sure current selected month is valid or default to today's month
+                if current_m not in available_months:
+                    available_months = sorted(list(set(available_months + [current_m])))
+
+                # Month Navigator Controls (Calendar Style)
+                c_prev, c_title, c_next, c_dropdown = st.columns([1, 2, 1, 2])
+
+                curr_idx = available_months.index(current_m) if current_m in available_months else 0
+
+                with c_prev:
+                    if st.button("◀ Previous Month", disabled=(curr_idx == 0), use_container_width=True):
+                        st.session_state.selected_daily_month = available_months[curr_idx - 1]
+                        st.rerun()
+
+                with c_next:
+                    if st.button("Next Month ▶", disabled=(curr_idx == len(available_months) - 1), use_container_width=True):
+                        st.session_state.selected_daily_month = available_months[curr_idx + 1]
+                        st.rerun()
+
+                with c_dropdown:
+                    selected_m = st.selectbox("Jump to Month", available_months, index=curr_idx, key="daily_month_select")
+                    if selected_m != st.session_state.selected_daily_month:
+                        st.session_state.selected_daily_month = selected_m
+                        st.rerun()
+
+                # Parse Selected Month Name
+                dt_obj = datetime.strptime(st.session_state.selected_daily_month, "%Y-%m")
+                month_display_name = dt_obj.strftime("%B %Y")
+
+                with c_title:
+                    st.markdown(f"<h3 style='text-align: center; color: #2563EB;'>📖 {month_display_name}</h3>", unsafe_allow_html=True)
+
+                # Filter Data for Selected Month
+                daily_month_df = df[df['month'] == st.session_state.selected_daily_month]
+
+                if not daily_month_df.empty:
+                    daily_sums = daily_month_df.groupby('date')['amount'].sum().reset_index()
+                    daily_sums['datetime'] = pd.to_datetime(daily_sums['date'])
+                    daily_sums = daily_sums.sort_values('datetime')
+
+                    avg_daily = daily_sums['amount'].mean()
+                    max_daily = daily_sums['amount'].max()
+                    max_date = daily_sums.loc[daily_sums['amount'].idxmax()]['date']
 
                     d_col1, d_col2 = st.columns(2)
-                    d_col1.info(f"💡 **Daily Average:** ${avg_daily:,.2f}")
-                    d_col2.warning(f"🔥 **Peak Spending Day:** ${max_daily:,.2f} (on {max_date})")
+                    d_col1.info(f"💡 **Average Daily Spend ({month_display_name}):** ${avg_daily:,.2f}")
+                    d_col2.warning(f"🔥 **Highest Spend Day:** ${max_daily:,.2f} (on {max_date})")
 
-                fig_daily = go.Figure()
-                
-                # DESCO Style Blue Bar with Data Labels
-                fig_daily.add_trace(go.Bar(
-                    x=daily_df['date'],
-                    y=daily_df['amount'],
-                    name='Daily Amount',
-                    marker_color='#2563EB',
-                    text=[f"${v:,.0f}" for v in daily_df['amount']],
-                    textposition='outside',
-                    opacity=0.85
-                ))
-                
-                # DESCO Style Yellow Line Overlay
-                fig_daily.add_trace(go.Scatter(
-                    x=daily_df['date'],
-                    y=daily_df['amount'],
-                    name='Trend Line',
-                    mode='lines+markers',
-                    line=dict(color='#F59E0B', width=3),
-                    marker=dict(size=8, color='#F59E0B')
-                ))
+                    # High-Contrast DESCO Style Graph
+                    fig_daily = go.Figure()
+                    fig_daily.add_trace(go.Bar(
+                        x=daily_sums['date'],
+                        y=daily_sums['amount'],
+                        name='Daily Expense',
+                        marker_color='#2563EB',
+                        text=[f"${v:,.0f}" for v in daily_sums['amount']],
+                        textposition='outside',
+                        opacity=0.85
+                    ))
+                    
+                    fig_daily.add_trace(go.Scatter(
+                        x=daily_sums['date'],
+                        y=daily_sums['amount'],
+                        name='Trend',
+                        mode='lines+markers',
+                        line=dict(color='#F59E0B', width=3),
+                        marker=dict(size=8, color='#F59E0B')
+                    ))
 
-                fig_daily.update_layout(
-                    title="Daily Expense Tracking & Trend (DESCO Style)",
-                    xaxis_title="Date",
-                    yaxis_title="Amount ($)",
-                    hovermode="x unified",
-                    template="plotly_white",
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-                )
-                st.plotly_chart(fig_daily, use_container_width=True)
+                    fig_daily.update_layout(
+                        title=f"Daily Track for {month_display_name}",
+                        xaxis_title="Date",
+                        yaxis_title="Amount ($)",
+                        hovermode="x unified",
+                        template="plotly_white"
+                    )
+                    st.plotly_chart(fig_daily, use_container_width=True)
+                else:
+                    st.info(f"No expense records found for {month_display_name}.")
 
             # 2. TIC-TAC-TOE STYLE MONTHLY CALENDAR GRID
             with tab_grid:
                 st.markdown("##### 🗓️ Month-at-a-Glance Expense Grid")
                 
                 available_months = sorted(df['month'].unique(), reverse=True)
-                selected_month = st.selectbox("Select Month to Inspect:", available_months)
+                selected_month = st.selectbox("Select Month to Inspect:", available_months, key="grid_month_select")
 
                 if selected_month:
                     year, month = map(int, selected_month.split("-"))
