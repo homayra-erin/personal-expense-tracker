@@ -1,10 +1,10 @@
 import streamlit as st
 import pandas as pd
-from datetime import date
+from datetime import date, datetime
 from supabase import create_client, Client
 
 # Streamlit Page Config
-st.set_page_config(page_title="Personal Expense Tracker", page_icon="💰", layout="centered")
+st.set_page_config(page_title="Personal Expense Tracker", page_icon="💰", layout="wide")
 
 # Supabase Initialization
 @st.cache_resource
@@ -52,32 +52,34 @@ else:
     user_id = st.session_state.user.id
     user_email = st.session_state.user.email
 
-    # Header & Logout
-    col_title, col_logout = st.columns([3, 1])
+    # Top Header & Logout
+    col_title, col_logout = st.columns([4, 1])
     with col_title:
-        st.title("💰 Expense Tracker")
+        st.title("💰 Personal Expense Tracker")
         st.caption(f"Logged in as: **{user_email}**")
     with col_logout:
         st.write("")
-        if st.button("Log Out"):
+        if st.button("Log Out", type="secondary"):
             supabase.auth.sign_out()
             st.session_state.user = None
             st.rerun()
 
     st.divider()
 
-    # --- ADD NEW EXPENSE ---
+    # --- ADD NEW EXPENSE SECTION ---
     st.subheader("➕ Add New Expense")
     with st.form("expense_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
+        col1, col2, col3, col4 = st.columns([2, 2, 3, 2])
         with col1:
             exp_date = st.date_input("Date", value=date.today())
-            category = st.selectbox("Category", ["Food", "Transport", "Shopping", "Bills", "Entertainment", "Other"])
         with col2:
-            description = st.text_input("Description", placeholder="e.g. Lunch at restaurant")
+            category = st.selectbox("Category", ["Food", "Transport", "Shopping", "Bills", "Entertainment", "Health", "Other"])
+        with col3:
+            description = st.text_input("Description", placeholder="e.g. Snacks or Bus Fare")
+        with col4:
             amount = st.number_input("Amount ($)", min_value=0.01, step=1.0)
             
-        submitted = st.form_submit_button("Add Expense", use_container_width=True)
+        submitted = st.form_submit_button("Add Expense", use_container_width=True, type="primary")
         
         if submitted:
             data = {
@@ -89,16 +91,16 @@ else:
             }
             try:
                 supabase.table("expenses").insert(data).execute()
-                st.success("Expense added successfully!")
+                st.toast("Expense added successfully!", icon="✅")
                 st.rerun()
             except Exception as e:
                 st.error(f"Failed to add expense: {e}")
 
     st.divider()
 
-    # --- FETCH & DISPLAY EXPENSES ---
+    # --- FETCH EXPENSES DATA ---
     try:
-        # তারিখ অনুযায়ী ক্রমানুসারে (পুরনো থেকে নতুন -> ২৫ থেকে ২৬) সাজানো
+        # তারিখ অনুযায়ী ক্রমানুসারে (২৫ তারিখের পর ২৬ তারিখ) সাজিয়ে ডাটা নিয়ে আসা
         response = supabase.table("expenses") \
             .select("*") \
             .order("date", desc=False) \
@@ -109,41 +111,65 @@ else:
         if expenses_data:
             df = pd.DataFrame(expenses_data)
             df['datetime'] = pd.to_datetime(df['date'])
+            df['month'] = df['datetime'].dt.strftime('%Y-%m')
 
-            # --- METRICS ---
+            # --- REAL-TIME SUMMARY METRICS ---
             today_str = str(date.today())
-            today_expense = df[df['date'] == today_str]['amount'].sum()
-            total_expense = df['amount'].sum()
+            current_month_str = date.today().strftime('%Y-%m')
 
-            m1, m2 = st.columns(2)
-            m1.metric(label="📅 Today's Expense", value=f"${today_expense:,.2f}")
-            m2.metric(label="📊 Overall Total Expense", value=f"${total_expense:,.2f}")
+            today_total = df[df['date'] == today_str]['amount'].sum()
+            month_total = df[df['month'] == current_month_str]['amount'].sum()
+            overall_total = df['amount'].sum()
+
+            m1, m2, m3 = st.columns(3)
+            m1.metric(label="📅 Today's Expense", value=f"${today_total:,.2f}")
+            m2.metric(label="🗓️ This Month's Expense", value=f"${month_total:,.2f}")
+            m3.metric(label="📊 Overall Total Expense", value=f"${overall_total:,.2f}")
 
             st.divider()
 
-            # --- CHARTS (DAILY & MONTHLY) ---
-            st.subheader("📈 Expense Analytics")
-            tab1, tab2 = st.tabs(["📅 Daily Chart", "🗓️ Monthly Chart"])
+            # --- VISUAL ANALYTICS & CHARTS ---
+            st.subheader("📈 Visual Analytics")
+            tab_daily, tab_monthly, tab_category = st.tabs(["📅 Daily Trend", "🗓️ Monthly Trend", "🏷️ Category Breakdown"])
 
-            with tab1:
-                # Daily Grouping
+            with tab_daily:
                 daily_df = df.groupby('date')['amount'].sum().reset_index()
                 daily_df.set_index('date', inplace=True)
                 st.bar_chart(daily_df['amount'])
 
-            with tab2:
-                # Monthly Grouping (YYYY-MM Format)
-                df['month'] = df['datetime'].dt.strftime('%Y-%m')
+            with tab_monthly:
                 monthly_df = df.groupby('month')['amount'].sum().reset_index()
                 monthly_df.set_index('month', inplace=True)
                 st.bar_chart(monthly_df['amount'])
 
+            with tab_category:
+                cat_df = df.groupby('category')['amount'].sum().reset_index()
+                cat_df.set_index('category', inplace=True)
+                st.bar_chart(cat_df['amount'])
+
             st.divider()
 
-            # --- EXPENSE HISTORY TABLE ---
-            st.subheader("📊 Expense History (Date Wise)")
+            # --- EXPENSE HISTORY & SEARCH/FILTER SECTION ---
+            st.subheader("📊 Expense History & Filtering")
 
-            # Record Headers
+            # Filter Controls
+            col_f1, col_f2 = st.columns(2)
+            with col_f1:
+                selected_cat = st.selectbox("Filter by Category", ["All"] + list(df['category'].unique()))
+            with col_f2:
+                search_text = st.text_input("Search Description", placeholder="Type to search...")
+
+            # Applying Filters
+            filtered_df = df.copy()
+            if selected_cat != "All":
+                filtered_df = filtered_df[filtered_df['category'] == selected_cat]
+            if search_text:
+                filtered_df = filtered_df[filtered_df['description'].str.contains(search_text, case=False, na=False)]
+
+            filtered_data = filtered_df.to_dict('records')
+
+            st.write("")
+            # History Table Headers
             h1, h2, h3, h4, h5 = st.columns([2, 2, 3, 2, 1])
             h1.markdown("**Date**")
             h2.markdown("**Category**")
@@ -152,22 +178,23 @@ else:
             h5.markdown("**Action**")
             st.divider()
 
-            # Record Rows
-            for item in expenses_data:
+            # Rows Iteration with Delete Button
+            for item in filtered_data:
                 col1, col2, col3, col4, col5 = st.columns([2, 2, 3, 2, 1])
                 col1.write(item["date"])
                 col2.write(item["category"])
                 col3.write(item.get("description") or "-")
                 col4.write(f"${item['amount']:,.2f}")
                 
-                # Delete Button
+                # Delete Record Button
                 if col5.button("❌", key=f"del_{item['id']}"):
                     try:
                         supabase.table("expenses").delete().eq("id", item["id"]).execute()
-                        st.toast("Expense deleted!")
+                        st.toast("Expense deleted!", icon="🗑️")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Could not delete item: {e}")
+
         else:
             st.info("No expense records found. Add your first expense above!")
 
