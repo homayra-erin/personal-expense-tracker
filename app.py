@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from datetime import date
 from supabase import create_client, Client
 
 # Streamlit Page Config
@@ -70,7 +71,7 @@ else:
     with st.form("expense_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         with col1:
-            exp_date = st.date_input("Date")
+            exp_date = st.date_input("Date", value=date.today())
             category = st.selectbox("Category", ["Food", "Transport", "Shopping", "Bills", "Entertainment", "Other"])
         with col2:
             description = st.text_input("Description", placeholder="e.g. Lunch at restaurant")
@@ -95,14 +96,12 @@ else:
 
     st.divider()
 
-    # --- FETCH & DISPLAY EXPENSES (NEWEST FIRST) ---
-    st.subheader("📊 Expense History")
-    
+    # --- FETCH & DISPLAY EXPENSES ---
     try:
-        # created_at অনুযায়ী desc=True করে সাজানো (নতুন রেকর্ড আগে আসবে)
+        # তারিখ অনুযায়ী ক্রমানুসারে (পুরনো থেকে নতুন -> ২৫ থেকে ২৬) সাজানো হয়েছে
         response = supabase.table("expenses") \
             .select("*") \
-            .order("created_at", desc=True) \
+            .order("date", desc=False) \
             .execute()
         
         expenses_data = response.data
@@ -110,10 +109,29 @@ else:
         if expenses_data:
             df = pd.DataFrame(expenses_data)
             
-            # Total Expense Metric
-            total_expense = df["amount"].sum()
-            st.metric(label="Total Expenses", value=f"${total_expense:,.2f}")
-            st.write("")
+            # --- DAILY TRACK METRICS ---
+            today_str = str(date.today())
+            today_expense = df[df['date'] == today_str]['amount'].sum()
+            total_expense = df['amount'].sum()
+
+            m1, m2 = st.columns(2)
+            m1.metric(label="📅 Today's Expense", value=f"${today_expense:,.2f}")
+            m2.metric(label="📊 Overall Total Expense", value=f"${total_expense:,.2f}")
+
+            st.divider()
+
+            # --- DAILY EXPENSE GRAPH ---
+            st.subheader("📈 Daily Expense Chart")
+            # প্রতিদিনের মোট খরচের হিসাব বের করে চার্ট তৈরি
+            daily_df = df.groupby('date')['amount'].sum().reset_index()
+            daily_df.set_index('date', inplace=True)
+            
+            st.bar_chart(daily_df['amount'])
+
+            st.divider()
+
+            # --- EXPENSE HISTORY TABLE ---
+            st.subheader("📊 Expense History (Date Wise)")
 
             # Record Headers
             h1, h2, h3, h4, h5 = st.columns([2, 2, 3, 2, 1])
@@ -124,7 +142,7 @@ else:
             h5.markdown("**Action**")
             st.divider()
 
-            # Record Rows with Delete Option
+            # Record Rows
             for item in expenses_data:
                 col1, col2, col3, col4, col5 = st.columns([2, 2, 3, 2, 1])
                 col1.write(item["date"])
