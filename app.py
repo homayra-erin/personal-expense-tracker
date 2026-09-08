@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
-from datetime import date, datetime
+import plotly.graph_objects as go
+import plotly.express as px
+from datetime import date
 from supabase import create_client, Client
 
 # Streamlit Page Config
@@ -100,7 +102,6 @@ else:
 
     # --- FETCH EXPENSES DATA ---
     try:
-        # তারিখ অনুযায়ী ক্রমানুসারে (২৫ তারিখের পর ২৬ তারিখ) সাজিয়ে ডাটা নিয়ে আসা
         response = supabase.table("expenses") \
             .select("*") \
             .order("date", desc=False) \
@@ -128,38 +129,87 @@ else:
 
             st.divider()
 
-            # --- VISUAL ANALYTICS & CHARTS ---
+            # --- VISUAL ANALYTICS & CHARTS (DESCO STYLE) ---
             st.subheader("📈 Visual Analytics")
-            tab_daily, tab_monthly, tab_category = st.tabs(["📅 Daily Trend", "🗓️ Monthly Trend", "🏷️ Category Breakdown"])
+            tab_daily, tab_monthly, tab_category = st.tabs(["📅 Daily Track", "🗓️ 12-Month Analytics", "🏷️ Category Breakdown"])
 
+            # 1. DAILY TRACK TAB (DESCO Yellow & Blue Line/Bar Combo)
             with tab_daily:
                 daily_df = df.groupby('date')['amount'].sum().reset_index()
-                daily_df.set_index('date', inplace=True)
-                st.bar_chart(daily_df['amount'])
 
+                fig_daily = go.Figure()
+                # Blue Bars
+                fig_daily.add_trace(go.Bar(
+                    x=daily_df['date'],
+                    y=daily_df['amount'],
+                    name='Daily Expense',
+                    marker_color='#2563EB'
+                ))
+                # Yellow Line Overlay (DESCO Style)
+                fig_daily.add_trace(go.Scatter(
+                    x=daily_df['date'],
+                    y=daily_df['amount'],
+                    name='Expense Trend',
+                    mode='lines+markers',
+                    line=dict(color='#F59E0B', width=3),
+                    marker=dict(size=6, color='#F59E0B')
+                ))
+
+                fig_daily.update_layout(
+                    title="Daily Expense Tracker (Blue Bar & Yellow Line)",
+                    xaxis_title="Date",
+                    yaxis_title="Amount ($)",
+                    hovermode="x unified",
+                    template="plotly_white"
+                )
+                st.plotly_chart(fig_daily, use_container_width=True)
+
+            # 2. MONTHLY ANALYTICS TAB (Separate 12-Month View)
             with tab_monthly:
                 monthly_df = df.groupby('month')['amount'].sum().reset_index()
-                monthly_df.set_index('month', inplace=True)
-                st.bar_chart(monthly_df['amount'])
 
+                fig_monthly = go.Figure()
+                fig_monthly.add_trace(go.Bar(
+                    x=monthly_df['month'],
+                    y=monthly_df['amount'],
+                    name='Monthly Total',
+                    marker_color='#1E40AF'
+                ))
+                fig_monthly.add_trace(go.Scatter(
+                    x=monthly_df['month'],
+                    y=monthly_df['amount'],
+                    name='Monthly Trend',
+                    mode='lines+markers',
+                    line=dict(color='#EAB308', width=3),
+                    marker=dict(size=8, color='#EAB308')
+                ))
+
+                fig_monthly.update_layout(
+                    title="12-Month Expense Breakdown",
+                    xaxis_title="Month (YYYY-MM)",
+                    yaxis_title="Total Amount ($)",
+                    hovermode="x unified",
+                    template="plotly_white"
+                )
+                st.plotly_chart(fig_monthly, use_container_width=True)
+
+            # 3. CATEGORY BREAKDOWN TAB
             with tab_category:
                 cat_df = df.groupby('category')['amount'].sum().reset_index()
-                cat_df.set_index('category', inplace=True)
-                st.bar_chart(cat_df['amount'])
+                fig_cat = px.pie(cat_df, values='amount', names='category', title='Category Share', hole=0.4)
+                st.plotly_chart(fig_cat, use_container_width=True)
 
             st.divider()
 
             # --- EXPENSE HISTORY & SEARCH/FILTER SECTION ---
             st.subheader("📊 Expense History & Filtering")
 
-            # Filter Controls
             col_f1, col_f2 = st.columns(2)
             with col_f1:
                 selected_cat = st.selectbox("Filter by Category", ["All"] + list(df['category'].unique()))
             with col_f2:
                 search_text = st.text_input("Search Description", placeholder="Type to search...")
 
-            # Applying Filters
             filtered_df = df.copy()
             if selected_cat != "All":
                 filtered_df = filtered_df[filtered_df['category'] == selected_cat]
@@ -169,7 +219,6 @@ else:
             filtered_data = filtered_df.to_dict('records')
 
             st.write("")
-            # History Table Headers
             h1, h2, h3, h4, h5 = st.columns([2, 2, 3, 2, 1])
             h1.markdown("**Date**")
             h2.markdown("**Category**")
@@ -178,7 +227,6 @@ else:
             h5.markdown("**Action**")
             st.divider()
 
-            # Rows Iteration with Delete Button
             for item in filtered_data:
                 col1, col2, col3, col4, col5 = st.columns([2, 2, 3, 2, 1])
                 col1.write(item["date"])
@@ -186,7 +234,6 @@ else:
                 col3.write(item.get("description") or "-")
                 col4.write(f"${item['amount']:,.2f}")
                 
-                # Delete Record Button
                 if col5.button("❌", key=f"del_{item['id']}"):
                     try:
                         supabase.table("expenses").delete().eq("id", item["id"]).execute()
