@@ -14,7 +14,7 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
-# Session State for User Authentication
+# Session State
 if "user" not in st.session_state:
     st.session_state.user = None
 
@@ -46,12 +46,12 @@ if st.session_state.user is None:
             except Exception as e:
                 st.error(f"Sign up failed: {e}")
 
-# --- MAIN APP SECTION (LOGGED IN) ---
+# --- MAIN APP SECTION ---
 else:
     user_id = st.session_state.user.id
     user_email = st.session_state.user.email
 
-    # Top Header & Logout
+    # Header
     col_title, col_logout = st.columns([3, 1])
     with col_title:
         st.title("💰 Expense Tracker")
@@ -68,12 +68,12 @@ else:
     # --- ADD NEW EXPENSE ---
     st.subheader("➕ Add New Expense")
     with st.form("expense_form", clear_on_submit=True):
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         with col1:
             exp_date = st.date_input("Date")
-        with col2:
             category = st.selectbox("Category", ["Food", "Transport", "Shopping", "Bills", "Entertainment", "Other"])
-        with col3:
+        with col2:
+            description = st.text_input("Description", placeholder="e.g. Lunch at restaurant")
             amount = st.number_input("Amount ($)", min_value=0.01, step=1.0)
             
         submitted = st.form_submit_button("Add Expense", use_container_width=True)
@@ -83,6 +83,7 @@ else:
                 "user_id": user_id,
                 "date": str(exp_date),
                 "category": category,
+                "description": description,
                 "amount": amount
             }
             try:
@@ -94,7 +95,7 @@ else:
 
     st.divider()
 
-    # --- FETCH & DISPLAY EXPENSES (ORDERED NEWEST FIRST) ---
+    # --- FETCH & DISPLAY EXPENSES (NEWEST FIRST) ---
     st.subheader("📊 Expense History")
     
     try:
@@ -109,28 +110,30 @@ else:
         if expenses_data:
             df = pd.DataFrame(expenses_data)
             
-            # Summary Metrics
+            # Metric
             total_expense = df["amount"].sum()
             st.metric(label="Total Expenses", value=f"${total_expense:,.2f}")
             st.write("")
 
-            # Record Headers
-            h1, h2, h3, h4 = st.columns([2, 2, 2, 1])
+            # Record Headers (Description সহ)
+            h1, h2, h3, h4, h5 = st.columns([2, 2, 3, 2, 1])
             h1.markdown("**Date**")
             h2.markdown("**Category**")
-            h3.markdown("**Amount**")
-            h4.markdown("**Action**")
+            h3.markdown("**Description**")
+            h4.markdown("**Amount**")
+            h5.markdown("**Action**")
             st.divider()
 
-            # Record Rows with Delete Option
+            # Rows
             for item in expenses_data:
-                col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
+                col1, col2, col3, col4, col5 = st.columns([2, 2, 3, 2, 1])
                 col1.write(item["date"])
                 col2.write(item["category"])
-                col3.write(f"${item['amount']:,.2f}")
+                col3.write(item.get("description", "-"))
+                col4.write(f"${item['amount']:,.2f}")
                 
                 # Delete Button
-                if col4.button("Delete", key=f"del_{item['id']}"):
+                if col5.button("❌", key=f"del_{item['id']}"):
                     try:
                         supabase.table("expenses").delete().eq("id", item["id"]).execute()
                         st.toast("Expense deleted!")
