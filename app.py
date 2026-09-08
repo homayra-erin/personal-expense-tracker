@@ -1,7 +1,5 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-from datetime import date
 from supabase import create_client, Client
 
 # Streamlit Page Config
@@ -72,7 +70,7 @@ else:
     with st.form("expense_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         with col1:
-            exp_date = st.date_input("Date", value=date.today())
+            exp_date = st.date_input("Date")
             category = st.selectbox("Category", ["Food", "Transport", "Shopping", "Bills", "Entertainment", "Other"])
         with col2:
             description = st.text_input("Description", placeholder="e.g. Lunch at restaurant")
@@ -97,8 +95,11 @@ else:
 
     st.divider()
 
-    # --- FETCH EXPENSES ---
+    # --- FETCH & DISPLAY EXPENSES (NEWEST FIRST) ---
+    st.subheader("📊 Expense History")
+    
     try:
+        # created_at অনুযায়ী desc=True করে সাজানো (নতুন রেকর্ড আগে আসবে)
         response = supabase.table("expenses") \
             .select("*") \
             .order("created_at", desc=True) \
@@ -108,44 +109,13 @@ else:
 
         if expenses_data:
             df = pd.DataFrame(expenses_data)
-            df['date'] = pd.to_datetime(df['date']).dt.date
-
-            # --- DAILY TRACKING METRICS ---
-            today_date = date.today()
-            today_expense = df[df['date'] == today_date]['amount'].sum()
-            total_expense = df['amount'].sum()
-
-            m1, m2 = st.columns(2)
-            m1.metric(label="📅 Today's Total Expense", value=f"${today_expense:,.2f}")
-            m2.metric(label="📊 Overall Total Expense", value=f"${total_expense:,.2f}")
-
-            st.divider()
-
-            # --- DAILY EXPENSE GRAPH ---
-            st.subheader("📈 Daily Expense Trend")
             
-            # Group data by date to get daily totals
-            daily_df = df.groupby('date', as_index=False)['amount'].sum().sort_values('date')
+            # Total Expense Metric
+            total_expense = df["amount"].sum()
+            st.metric(label="Total Expenses", value=f"${total_expense:,.2f}")
+            st.write("")
 
-            fig = px.bar(
-                daily_df, 
-                x='date', 
-                y='amount', 
-                labels={'date': 'Date', 'amount': 'Total Amount ($)'},
-                title="Daily Expenses Breakdown",
-                text_auto='.2f'
-            )
-            fig.update_traces(marker_color='#FF4B4B', textposition='outside')
-            fig.update_layout(xaxis_title="", yaxis_title="Amount ($)", hovermode="x")
-            
-            st.plotly_chart(fig, use_container_width=True)
-
-            st.divider()
-
-            # --- EXPENSE HISTORY TABLE ---
-            st.subheader("📊 Expense History")
-
-            # Table Headers
+            # Record Headers
             h1, h2, h3, h4, h5 = st.columns([2, 2, 3, 2, 1])
             h1.markdown("**Date**")
             h2.markdown("**Category**")
@@ -154,10 +124,10 @@ else:
             h5.markdown("**Action**")
             st.divider()
 
-            # Rows with Delete Option
+            # Record Rows with Delete Option
             for item in expenses_data:
                 col1, col2, col3, col4, col5 = st.columns([2, 2, 3, 2, 1])
-                col1.write(str(item["date"]))
+                col1.write(item["date"])
                 col2.write(item["category"])
                 col3.write(item.get("description") or "-")
                 col4.write(f"${item['amount']:,.2f}")
