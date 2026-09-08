@@ -98,7 +98,7 @@ else:
 
     # --- FETCH & DISPLAY EXPENSES ---
     try:
-        # তারিখ অনুযায়ী ক্রমানুসারে (পুরনো থেকে নতুন -> ২৫ থেকে ২৬) সাজানো হয়েছে
+        # তারিখ অনুযায়ী ক্রমানুসারে (পুরনো থেকে নতুন -> ২৫ থেকে ২৬) সাজানো
         response = supabase.table("expenses") \
             .select("*") \
             .order("date", desc=False) \
@@ -108,8 +108,9 @@ else:
 
         if expenses_data:
             df = pd.DataFrame(expenses_data)
-            
-            # --- DAILY TRACK METRICS ---
+            df['datetime'] = pd.to_datetime(df['date'])
+
+            # --- METRICS ---
             today_str = str(date.today())
             today_expense = df[df['date'] == today_str]['amount'].sum()
             total_expense = df['amount'].sum()
@@ -120,13 +121,22 @@ else:
 
             st.divider()
 
-            # --- DAILY EXPENSE GRAPH ---
-            st.subheader("📈 Daily Expense Chart")
-            # প্রতিদিনের মোট খরচের হিসাব বের করে চার্ট তৈরি
-            daily_df = df.groupby('date')['amount'].sum().reset_index()
-            daily_df.set_index('date', inplace=True)
-            
-            st.bar_chart(daily_df['amount'])
+            # --- CHARTS (DAILY & MONTHLY) ---
+            st.subheader("📈 Expense Analytics")
+            tab1, tab2 = st.tabs(["📅 Daily Chart", "🗓️ Monthly Chart"])
+
+            with tab1:
+                # Daily Grouping
+                daily_df = df.groupby('date')['amount'].sum().reset_index()
+                daily_df.set_index('date', inplace=True)
+                st.bar_chart(daily_df['amount'])
+
+            with tab2:
+                # Monthly Grouping (YYYY-MM Format)
+                df['month'] = df['datetime'].dt.strftime('%Y-%m')
+                monthly_df = df.groupby('month')['amount'].sum().reset_index()
+                monthly_df.set_index('month', inplace=True)
+                st.bar_chart(monthly_df['amount'])
 
             st.divider()
 
