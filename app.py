@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 from datetime import date
+import calendar
 from supabase import create_client, Client
 
 # Streamlit Page Config
@@ -68,35 +69,71 @@ else:
 
     st.divider()
 
-    # --- ADD NEW EXPENSE SECTION ---
-    st.subheader("➕ Add New Expense")
-    with st.form("expense_form", clear_on_submit=True):
-        col1, col2, col3, col4 = st.columns([2, 2, 3, 2])
-        with col1:
-            exp_date = st.date_input("Date", value=date.today())
-        with col2:
-            category = st.selectbox("Category", ["Food", "Transport", "Shopping", "Bills", "Entertainment", "Health", "Other"])
-        with col3:
-            description = st.text_input("Description", placeholder="e.g. Snacks or Bus Fare")
-        with col4:
-            amount = st.number_input("Amount ($)", min_value=0.01, step=1.0)
+    # --- ADD EXPENSE TABS (SINGLE vs MONTHLY FIXED) ---
+    st.subheader("➕ Add Expenses")
+    add_tab1, add_tab2 = st.tabs(["📌 Add Single Expense", "🗓️ Add Monthly Fixed Expense"])
+
+    # 1. Single Daily Expense Form
+    with add_tab1:
+        with st.form("single_expense_form", clear_on_submit=True):
+            col1, col2, col3, col4 = st.columns([2, 2, 3, 2])
+            with col1:
+                exp_date = st.date_input("Date", value=date.today())
+            with col2:
+                category = st.selectbox("Category", ["Food", "Transport", "Shopping", "Bills", "Entertainment", "Health", "Other"])
+            with col3:
+                description = st.text_input("Description", placeholder="e.g. Snacks or Bus Fare")
+            with col4:
+                amount = st.number_input("Amount ($)", min_value=0.01, step=1.0, key="single_amt")
+                
+            submitted = st.form_submit_button("Add Expense", use_container_width=True, type="primary")
             
-        submitted = st.form_submit_button("Add Expense", use_container_width=True, type="primary")
-        
-        if submitted:
-            data = {
-                "user_id": user_id,
-                "date": str(exp_date),
-                "category": category,
-                "description": description,
-                "amount": amount
-            }
-            try:
-                supabase.table("expenses").insert(data).execute()
-                st.toast("Expense added successfully!", icon="✅")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Failed to add expense: {e}")
+            if submitted:
+                data = {
+                    "user_id": user_id,
+                    "date": str(exp_date),
+                    "category": category,
+                    "description": description,
+                    "amount": amount
+                }
+                try:
+                    supabase.table("expenses").insert(data).execute()
+                    st.toast("Expense added successfully!", icon="✅")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to add expense: {e}")
+
+    # 2. Monthly Fixed Expense Form
+    with add_tab2:
+        with st.form("monthly_expense_form", clear_on_submit=True):
+            col1, col2, col3, col4 = st.columns([2, 2, 3, 2])
+            with col1:
+                m_year = st.number_input("Year", min_value=2020, max_value=2030, value=date.today().year)
+                m_month = st.selectbox("Month", range(1, 13), index=date.today().month - 1)
+            with col2:
+                m_category = st.selectbox("Category", ["Bills", "House Rent", "Subscription", "Shopping", "Other"], key="m_cat")
+            with col3:
+                m_description = st.text_input("Monthly Expense Title", placeholder="e.g. Monthly House Rent")
+            with col4:
+                m_amount = st.number_input("Amount ($)", min_value=0.01, step=1.0, key="m_amt")
+                
+            m_submitted = st.form_submit_button("Add Monthly Fixed Expense", use_container_width=True, type="primary")
+            
+            if m_submitted:
+                first_day_of_month = f"{m_year}-{m_month:02d}-01"
+                data = {
+                    "user_id": user_id,
+                    "date": first_day_of_month,
+                    "category": m_category,
+                    "description": f"[Monthly] {m_description}",
+                    "amount": m_amount
+                }
+                try:
+                    supabase.table("expenses").insert(data).execute()
+                    st.toast("Monthly expense added successfully!", icon="✅")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to add monthly expense: {e}")
 
     st.divider()
 
@@ -130,82 +167,116 @@ else:
             st.divider()
 
             # --- VISUAL ANALYTICS & CHARTS ---
-            st.subheader("📈 Visual Analytics")
-            tab_daily, tab_monthly, tab_category = st.tabs(["📅 Daily Track", "🗓️ 12-Month Analytics", "🏷️ Category Breakdown"])
+            st.subheader("📈 Analytics & Monthly Grid")
+            tab_daily, tab_grid, tab_monthly, tab_category = st.tabs([
+                "📅 Daily Track (Updated)", 
+                "🧩 Monthly Tic-Tac Grid", 
+                "🗓️ 12-Month Analytics", 
+                "🏷️ Category Breakdown"
+            ])
 
             # 1. UPDATED DAILY TRACK TAB
             with tab_daily:
                 daily_df = df.groupby('date')['amount'].sum().reset_index()
-                daily_df['date'] = pd.to_datetime(daily_df['date'])
-                daily_df = daily_df.sort_values('date')
+                daily_df['datetime'] = pd.to_datetime(daily_df['date'])
+                daily_df = daily_df.sort_values('datetime')
 
-                avg_daily = daily_df['amount'].mean() if not daily_df.empty else 0.0
+                if not daily_df.empty:
+                    avg_daily = daily_df['amount'].mean()
+                    max_daily = daily_df['amount'].max()
+                    max_date = daily_df.loc[daily_df['amount'].idxmax()]['date']
 
-                st.caption(f"💡 Daily Average Expense: **${avg_daily:,.2f}**")
+                    d_col1, d_col2 = st.columns(2)
+                    d_col1.info(f"💡 **Daily Average:** ${avg_daily:,.2f}")
+                    d_col2.warning(f"🔥 **Peak Spending Day:** ${max_daily:,.2f} (on {max_date})")
 
                 fig_daily = go.Figure()
                 
-                # DESCO Style Blue Bars
+                # DESCO Style Blue Bar with Data Labels
                 fig_daily.add_trace(go.Bar(
                     x=daily_df['date'],
                     y=daily_df['amount'],
-                    name='Daily Expense',
+                    name='Daily Amount',
                     marker_color='#2563EB',
+                    text=[f"${v:,.0f}" for v in daily_df['amount']],
+                    textposition='outside',
                     opacity=0.85
                 ))
                 
-                # DESCO Style Yellow Trend Line
+                # DESCO Style Yellow Line Overlay
                 fig_daily.add_trace(go.Scatter(
                     x=daily_df['date'],
                     y=daily_df['amount'],
-                    name='Trend',
+                    name='Trend Line',
                     mode='lines+markers',
                     line=dict(color='#F59E0B', width=3),
-                    marker=dict(size=7, color='#F59E0B')
+                    marker=dict(size=8, color='#F59E0B')
                 ))
 
                 fig_daily.update_layout(
-                    title="Daily Expense Tracker",
+                    title="Daily Expense Tracking & Trend (DESCO Style)",
                     xaxis_title="Date",
                     yaxis_title="Amount ($)",
                     hovermode="x unified",
                     template="plotly_white",
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                 )
-                fig_daily.update_xaxes(dtick="86400000", tickformat="%d %b")
                 st.plotly_chart(fig_daily, use_container_width=True)
 
-            # 2. MONTHLY ANALYTICS TAB
+            # 2. TIC-TAC-TOE STYLE MONTHLY CALENDAR GRID
+            with tab_grid:
+                st.markdown("##### 🗓️ Month-at-a-Glance Expense Grid")
+                
+                available_months = sorted(df['month'].unique(), reverse=True)
+                selected_month = st.selectbox("Select Month to Inspect:", available_months)
+
+                if selected_month:
+                    year, month = map(int, selected_month.split("-"))
+                    num_days = calendar.monthrange(year, month)[1]
+
+                    month_df = df[df['month'] == selected_month]
+                    daily_sums = month_df.groupby('date')['amount'].sum().to_dict()
+
+                    st.caption(f"Showing daily activity for **{calendar.month_name[month]} {year}**")
+
+                    cols_per_row = 7
+                    for day_start in range(1, num_days + 1, cols_per_row):
+                        grid_cols = st.columns(cols_per_row)
+                        for i in range(cols_per_row):
+                            day_num = day_start + i
+                            if day_num <= num_days:
+                                date_key = f"{year}-{month:02d}-{day_num:02d}"
+                                has_expense = date_key in daily_sums
+                                day_amount = daily_sums.get(date_key, 0.0)
+
+                                with grid_cols[i]:
+                                    if has_expense:
+                                        st.success(f"**Day {day_num}**\n\n✅ **${day_amount:,.0f}**")
+                                    else:
+                                        st.caption(f"Day {day_num}\n\n❌ $0")
+
+            # 3. 12-MONTH ANALYTICS TAB
             with tab_monthly:
                 monthly_df = df.groupby('month')['amount'].sum().reset_index()
 
                 fig_monthly = go.Figure()
                 fig_monthly.add_trace(go.Bar(
-                    x=monthly_df['month'],
-                    y=monthly_df['amount'],
-                    name='Monthly Total',
-                    marker_color='#1E40AF'
+                    x=monthly_df['month'], y=monthly_df['amount'],
+                    name='Monthly Total', marker_color='#1E40AF'
                 ))
                 fig_monthly.add_trace(go.Scatter(
-                    x=monthly_df['month'],
-                    y=monthly_df['amount'],
-                    name='Monthly Trend',
-                    mode='lines+markers',
-                    line=dict(color='#EAB308', width=3),
-                    marker=dict(size=8, color='#EAB308')
+                    x=monthly_df['month'], y=monthly_df['amount'],
+                    name='Monthly Trend', mode='lines+markers',
+                    line=dict(color='#EAB308', width=3), marker=dict(size=8, color='#EAB308')
                 ))
 
                 fig_monthly.update_layout(
-                    title="12-Month Expense Breakdown",
-                    xaxis_title="Month (YYYY-MM)",
-                    yaxis_title="Total Amount ($)",
-                    hovermode="x unified",
-                    template="plotly_white",
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                    title="12-Month Expense Breakdown", xaxis_title="Month (YYYY-MM)", yaxis_title="Total Amount ($)",
+                    hovermode="x unified", template="plotly_white"
                 )
                 st.plotly_chart(fig_monthly, use_container_width=True)
 
-            # 3. CATEGORY BREAKDOWN TAB
+            # 4. CATEGORY BREAKDOWN TAB
             with tab_category:
                 cat_df = df.groupby('category')['amount'].sum().reset_index()
                 fig_cat = px.pie(cat_df, values='amount', names='category', title='Category Share', hole=0.4)
