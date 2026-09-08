@@ -129,42 +129,53 @@ else:
 
             st.divider()
 
-            # --- VISUAL ANALYTICS & CHARTS (DESCO STYLE) ---
+            # --- VISUAL ANALYTICS & CHARTS ---
             st.subheader("📈 Visual Analytics")
             tab_daily, tab_monthly, tab_category = st.tabs(["📅 Daily Track", "🗓️ 12-Month Analytics", "🏷️ Category Breakdown"])
 
-            # 1. DAILY TRACK TAB (DESCO Yellow & Blue Line/Bar Combo)
+            # 1. UPDATED DAILY TRACK TAB
             with tab_daily:
                 daily_df = df.groupby('date')['amount'].sum().reset_index()
+                daily_df['date'] = pd.to_datetime(daily_df['date'])
+                daily_df = daily_df.sort_values('date')
+
+                avg_daily = daily_df['amount'].mean() if not daily_df.empty else 0.0
+
+                st.caption(f"💡 Daily Average Expense: **${avg_daily:,.2f}**")
 
                 fig_daily = go.Figure()
-                # Blue Bars
+                
+                # DESCO Style Blue Bars
                 fig_daily.add_trace(go.Bar(
                     x=daily_df['date'],
                     y=daily_df['amount'],
                     name='Daily Expense',
-                    marker_color='#2563EB'
+                    marker_color='#2563EB',
+                    opacity=0.85
                 ))
-                # Yellow Line Overlay (DESCO Style)
+                
+                # DESCO Style Yellow Trend Line
                 fig_daily.add_trace(go.Scatter(
                     x=daily_df['date'],
                     y=daily_df['amount'],
-                    name='Expense Trend',
+                    name='Trend',
                     mode='lines+markers',
                     line=dict(color='#F59E0B', width=3),
-                    marker=dict(size=6, color='#F59E0B')
+                    marker=dict(size=7, color='#F59E0B')
                 ))
 
                 fig_daily.update_layout(
-                    title="Daily Expense Tracker (Blue Bar & Yellow Line)",
+                    title="Daily Expense Tracker",
                     xaxis_title="Date",
                     yaxis_title="Amount ($)",
                     hovermode="x unified",
-                    template="plotly_white"
+                    template="plotly_white",
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                 )
+                fig_daily.update_xaxes(dtick="86400000", tickformat="%d %b")
                 st.plotly_chart(fig_daily, use_container_width=True)
 
-            # 2. MONTHLY ANALYTICS TAB (Separate 12-Month View)
+            # 2. MONTHLY ANALYTICS TAB
             with tab_monthly:
                 monthly_df = df.groupby('month')['amount'].sum().reset_index()
 
@@ -189,7 +200,8 @@ else:
                     xaxis_title="Month (YYYY-MM)",
                     yaxis_title="Total Amount ($)",
                     hovermode="x unified",
-                    template="plotly_white"
+                    template="plotly_white",
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                 )
                 st.plotly_chart(fig_monthly, use_container_width=True)
 
